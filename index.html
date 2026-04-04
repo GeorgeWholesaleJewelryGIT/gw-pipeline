@@ -93,10 +93,15 @@ function App(){
     await runAI("briefing",`Today:${todayStr}. Pipeline:${pipe}. Due:${due||"none"}. A-tier:\n${aTop||"none"}\n\nGenerate elite daily briefing:\n1. PIPELINE PULSE (2 sentences, brutally honest)\n2. TOP 5 MOVES TODAY (numbered, name specific lead + exact action)\n3. BOTTLENECK (what's stalling and why)\n4. VOLUME TARGETS (exact numbers)\n5. POWER MOVE (one non-obvious action)\n6. CLOSER (one line, make it hit)`);
   }
 
-  async function genLeads(){
-    const existing=leads.slice(0,15).map(l=>l.name).join(", ");
-    const r=await runAI("leads_raw",`Generate 15 elite wholesale jewelry leads.\nTypes: Setter/Studio, Retail Jeweler, Lab Diamond Dealer, Jewelry Manufacturer\nCities: ${CITIES.join(", ")}\nAvoid: ${existing}\nReturn ONLY raw JSON array:\n[{name,contact,email,type,city,channel,tier,notes,title,score}]\n- channel: Cold Email or Instagram or LinkedIn\n- tier: A/B/C\n- score: 0-100\nNo markdown. Raw JSON only.`);
-    try{const c=r.replace(/```json|```/g,"").trim();setO("leads",JSON.parse(c));}catch{setO("leads",[]);}
+ async function genLeads(){
+  const existing=leads.slice(0,15).map(l=>l.name).join(", ");
+  const r=await runAI("leads_raw",`Generate 15 wholesale jewelry leads for a 14K gold mounting supplier in LA.\nReturn ONLY a JSON array. No markdown, no explanation, no backticks.\nEach object must have: name, contact, email, type, city, channel, tier, notes, title, score\n\nRules:\n- contact: @handle if Instagram, email if Cold Email\n- channel: exactly "Cold Email" or "Instagram" or "LinkedIn"\n- tier: exactly "A" or "B" or "C"\n- score: number 0-100\n- type: Setter/Studio or Retail Jeweler or Lab Diamond Dealer or Jewelry Manufacturer\n- Avoid these names: ${existing}\n\nStart your response with [ and end with ]`);
+  try{
+    const match=r.match(/\[[\s\S]*\]/);
+    if(match){setO("leads",JSON.parse(match[0]));}
+    else{setO("leads",[]);}
+  }catch(e){setO("leads",[]);}
+   
   }
 
   async function research(lead){
