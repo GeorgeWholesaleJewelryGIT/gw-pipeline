@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>GW — Outreach OS</title>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;background:#f7f5f0;color:#1a1a1a}
+input,select,textarea,button{font-family:inherit}
+::-webkit-scrollbar{width:4px}::-webkit-scrollbar-track{background:#f0ece0}::-webkit-scrollbar-thumb{background:#C9A84C;border-radius:2px}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const {useState,useEffect,useRef}=React;
+const G="#C9A84C",D="#1a1a1a",W="#fff",BG="#f7f5f0";
+const STAGES=["New Lead","Researched","Emailed","DM Sent","LinkedIn","Replied","Call Booked","Catalog Sent","Negotiating","Won","Lost","Nurture"];
+const SC={"New Lead":["#f5f0e8","#7a6a3a"],"Researched":["#eef0fa","#3a4a8a"],"Emailed":["#f0e8fa","#5a1a8a"],"DM Sent":["#e8f0fa","#1a4a8a"],"LinkedIn":["#e8f0ff","#1a1a8a"],"Replied":["#e8f5ee","#1a6a3a"],"Call Booked":["#fff0e0","#8a5a00"],"Catalog Sent":["#fdf3e0","#7a5a1a"],"Negotiating":["#fdebd0","#7a3a1a"],"Won":["#e6f4ea","#1a5a2a"],"Lost":["#f4f4f4","#888"],"Nurture":["#f0e8f5","#6a1a7a"]};
+const TYPES=["Setter/Studio","Retail Jeweler","Lab Diamond Dealer","Jewelry Manufacturer","Custom Jeweler","Pawn/Estate"];
+const CHANNELS=["Cold Email","Instagram","LinkedIn","In-Person","Trade Show","Referral"];
+const CITIES=["New York","Los Angeles","Miami","Dallas","Chicago","Houston","Las Vegas","Atlanta","Seattle","Phoenix","Boston","San Francisco","Denver","Orlando","Detroit","Philadelphia","Minneapolis","Portland","Nashville","Charlotte"];
+const SYS="You are George's elite B2B wholesale outreach strategist. George's Wholesale sells 14K gold mountings (tennis bracelets, necklaces, rings) wholesale from LA. Best clients: bench jewelers and stone setters who buy mountings, stone them, flip to retail. Target: businesses doing $15K–$100K/month. George is 19, building from scratch. Be ruthlessly direct and specific.";
+const DAILY_GOALS=[{id:"new_leads",label:"Find & add 10 new leads",target:10,unit:"leads"},{id:"emails_sent",label:"Send 15 cold emails",target:15,unit:"emails"},{id:"dms_sent",label:"Send 20 DMs / LinkedIn touches",target:20,unit:"touches"},{id:"followups",label:"Complete all due follow-ups",target:1,unit:"batch"},{id:"research",label:"Research 5 leads before outreach",target:5,unit:"researched"},{id:"replies",label:"Reply to every inbound within 2hrs",target:1,unit:"batch"},{id:"sequences",label:"Build 3 full 7-touch sequences",target:3,unit:"sequences"}];
+const DEMO=[{id:1,name:"Diamond Setters LA",contact:"@diamondsettersla",email:"",type:"Setter/Studio",city:"Los Angeles",channel:"Instagram",stage:"Replied",tier:"A",notes:"Interested in tennis bracelets. Asked about MOQ.",lastContact:"2026-03-30",followUpDate:"2026-04-03",score:88},{id:2,name:"Goldmark Fine Jewelry",contact:"info@goldmarkjewelry.com",email:"info@goldmarkjewelry.com",type:"Retail Jeweler",city:"Miami",channel:"Cold Email",stage:"Catalog Sent",tier:"A",notes:"Restocks quarterly. Budget ~$10k/quarter.",lastContact:"2026-04-01",followUpDate:"2026-04-04",score:92},{id:3,name:"Priya Gem Studio",contact:"@priyagemstudio",email:"",type:"Setter/Studio",city:"New York",channel:"Instagram",stage:"DM Sent",tier:"B",notes:"Heavy lab diamond work. High-volume setter.",lastContact:"2026-04-02",followUpDate:"2026-04-05",score:74}];
+const today=()=>new Date().toISOString().split("T")[0];
+const addDays=(d,n)=>{const dt=new Date(d||today());dt.setDate(dt.getDate()+n);return dt.toISOString().split("T")[0];};
+const fmt=d=>d?new Date(d).toLocaleDateString("en-US",{month:"short",day:"numeric"}):"—";
+const ai=async(prompt,sys=SYS,apiKey)=>{
+  const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json","x-api-key":apiKey,"anthropic-version":"2023-06-01"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1500,system:sys,messages:[{role:"user",content:prompt}]})});
+  const d=await r.json();
+  return d.content?.[0]?.text||d.error?.message||"Error";
+};
+
+function App(){
+  const [leads,setLeads]=useState(()=>{try{const s=localStorage.getItem("gw_leads");return s?JSON.parse(s):DEMO;}catch{return DEMO;}});
+  const [view,setView]=useState("command");
+  const [modal,setModal]=useState(null);
+  const [editLead,setEditLead]=useState(null);
+  const [loading,setLoading]=useState({});
+  const [out,setOut]=useState({});
+  const [filterTier,setFilterTier]=useState("All");
+  const [filterStage,setFilterStage]=useState("All");
+  const [msgLead,setMsgLead]=useState(null);
+  const [msgChan,setMsgChan]=useState("email");
+  const [msgPos,setMsgPos]=useState("1");
+  const [copied,setCopied]=useState("");
+  const [importTxt,setImportTxt]=useState("");
+  const [apiKey,setApiKey]=useState(()=>localStorage.getItem("gw_key")||"");
+  const [showKey,setShowKey]=useState(false);
+  const [progress,setProgress]=useState(()=>{try{const s=localStorage.getItem("gw_prog");const p=s?JSON.parse(s):{date:today(),counts:{}};return p.date!==today()?{date:today(),counts:{}}:p;}catch{return {date:today(),counts:{}};}});
+  const [streak,setStreak]=useState(()=>{try{const s=localStorage.getItem("gw_streak");return s?JSON.parse(s):{days:0,lastWin:""};}catch{return {days:0,lastWin:""};}});
+  const [form,setForm]=useState({name:"",contact:"",email:"",type:"Setter/Studio",city:"Los Angeles",channel:"Cold Email",stage:"New Lead",tier:"B",notes:"",followUpDate:"",title:"Owner"});
+
+  useEffect(()=>{try{localStorage.setItem("gw_leads",JSON.stringify(leads));}catch{}},[leads]);
+  useEffect(()=>{try{localStorage.setItem("gw_prog",JSON.stringify(progress));}catch{}},[progress]);
+  useEffect(()=>{try{localStorage.setItem("gw_streak",JSON.stringify(streak));}catch{}},[streak]);
+
+  const todayStr=today();
+  const dueToday=leads.filter(l=>l.followUpDate&&l.followUpDate<=todayStr&&!["Won","Lost"].includes(l.stage));
+  const active=leads.filter(l=>!["Won","Lost"].includes(l.stage));
+  const tierA=leads.filter(l=>l.tier==="A"&&!["Won","Lost"].includes(l.stage));
+  const won=leads.filter(l=>l.stage==="Won");
+  const todayComplete=DAILY_GOALS.filter(g=>(progress.counts[g.id]||0)>=g.target).length;
+  const totalScore=Math.round((todayComplete/DAILY_GOALS.length)*100);
+
+  const setL=(k,v)=>setLoading(p=>({...p,[k]:v}));
+  const setO=(k,v)=>setOut(p=>({...p,[k]:v}));
+  const cp=(t,k)=>{navigator.clipboard?.writeText(t);setCopied(k);setTimeout(()=>setCopied(""),2000);};
+  const incProg=(key,n=1)=>setProgress(p=>({...p,counts:{...p.counts,[key]:(p.counts[key]||0)+n}}));
+  const addLead=l=>{setLeads(p=>[{...l,id:Date.now(),lastContact:todayStr,followUpDate:l.followUpDate||addDays(todayStr,l.tier==="A"?1:3)},...p]);incProg("new_leads");};
+  const upLead=(id,patch)=>setLeads(p=>p.map(l=>l.id===id?{...l,...patch,lastContact:todayStr}:l));
+  const delLead=id=>setLeads(p=>p.filter(l=>l.id!==id));
+
+  const saveKey=k=>{setApiKey(k);localStorage.setItem("gw_key",k);setShowKey(false);};
+
+  const runAI=async(key,prompt)=>{
+    if(!apiKey){setShowKey(true);return "";}
+    setL(key,true);setO(key,"");
+    const r=await ai(prompt,SYS,apiKey);
+    setO(key,r);setL(key,false);
+    return r;
+  };
+
+  async function genBriefing(){
+    const pipe=STAGES.map(s=>({s,n:leads.filter(l=>l.stage===s).length})).filter(x=>x.n>0).map(x=>`${x.s}:${x.n}`).join(", ");
+    const due=dueToday.map(l=>`${l.name}(${l.tier},${l.stage})`).join(", ");
+    const aTop=tierA.slice(0,4).map(l=>`${l.name}—${l.stage}—${l.notes?.slice(0,50)}`).join("\n");
+    await runAI("briefing",`Today:${todayStr}. Pipeline:${pipe}. Due:${due||"none"}. A-tier:\n${aTop||"none"}\n\nGenerate elite daily briefing:\n1. PIPELINE PULSE (2 sentences, brutally honest)\n2. TOP 5 MOVES TODAY (numbered, name specific lead + exact action)\n3. BOTTLENECK (what's stalling and why)\n4. VOLUME TARGETS (exact numbers)\n5. POWER MOVE (one non-obvious action)\n6. CLOSER (one line, make it hit)`);
+  }
+
+  async function genLeads(){
+    const existing=leads.slice(0,15).map(l=>l.name).join(", ");
+    const r=await runAI("leads_raw",`Generate 15 elite wholesale jewelry leads.\nTypes: Setter/Studio, Retail Jeweler, Lab Diamond Dealer, Jewelry Manufacturer\nCities: ${CITIES.join(", ")}\nAvoid: ${existing}\nReturn ONLY raw JSON array:\n[{name,contact,email,type,city,channel,tier,notes,title,score}]\n- channel: Cold Email or Instagram or LinkedIn\n- tier: A/B/C\n- score: 0-100\nNo markdown. Raw JSON only.`);
+    try{const c=r.replace(/```json|```/g,"").trim();setO("leads",JSON.parse(c));}catch{setO("leads",[]);}
+  }
+
+  async function research(lead){
+    await runAI("research",`Score and brief:\nBusiness:${lead.name} | Type:${lead.type} | City:${lead.city} | Tier:${lead.tier}\nNotes:${lead.notes||"none"}\n\n1. SCORE (0-100) + reasoning\n2. TIER VERDICT + why\n3. PAIN POINTS with current supplier\n4. PERSONALIZATION HOOKS — 3 specific angles\n5. OBJECTIONS + exact rebuttals\n6. SEQUENCE RECOMMENDATION\n7. DEAL SIZE ESTIMATE`);
+    incProg("research");
+    upLead(lead.id,{stage:"Researched"});
+  }
+
+  async function genMsg(){
+    if(!msgLead)return;
+    const seqMap={"1":"cold open — never heard of George","2":"follow-up #1 no reply day 5","3":"final breakup day 10","reply":"they showed interest — push to catalog or call","objection":"they have a supplier — handle it","show":"pre-JCK Las Vegas June 2026"};
+    await runAI("msg",`Write outreach:\nBusiness:${msgLead.name} | Type:${msgLead.type} | City:${msgLead.city} | Tier:${msgLead.tier}\nContact:${msgLead.contact} | Notes:${msgLead.notes||"none"} | Title:${msgLead.title||"Owner"}\nChannel:${msgChan} | Position:${seqMap[msgPos]||seqMap["1"]}\n\n${msgChan==="email"?"Subject line first, blank line, 5-6 sentences, one CTA. No 'I hope this finds you well'.":msgChan==="linkedin"?"LinkedIn note max 280 chars. Specific, professional.":"DM: 2-3 sentences, end with question."}\nSound like a real 19yo LA jewelry guy. Lead with value for THEM. 1 of 1 not 1 of 1000.\nOutput only the message.`);
+  }
+
+  async function genSequence(){
+    if(!msgLead)return;
+    await runAI("sequence",`Build 7-touch multi-channel sequence:\n${msgLead.name} | ${msgLead.type} | ${msgLead.city} | Tier ${msgLead.tier}\nNotes:${msgLead.notes||"none"}\n\n21-day sequence across Email + LinkedIn + Instagram.\nEach touch: Day | Channel | Type | Full copy (paste-ready) | Goal\nEscalate urgency naturally. Separate with ---`);
+    incProg("sequences");
+  }
+
+  async function importContacts(){
+    if(!importTxt.trim())return;
+    const r=await runAI("import_raw",`Clean and structure these messy contacts:\n${importTxt}\n\nReturn ONLY raw JSON array:\n[{name,contact,email,type,city,channel,tier,notes,title}]\n- Infer type, tier, channel from context\n- Tier A: setters/studios/lab dealers. B: retailers. C: unclear\nNo markdown. Raw JSON only.`);
+    try{const c=r.replace(/```json|```/g,"").trim();setO("importParsed",JSON.parse(c));}catch{setO("importParsed",[]);}
+  }
+
+  const filtered=leads.filter(l=>(filterTier==="All"||l.tier===filterTier)&&(filterStage==="All"||l.stage===filterStage));
+  const analytics={
+    replyRate:leads.length?Math.round(leads.filter(l=>["Replied","Call Booked","Catalog Sent","Negotiating","Won"].includes(l.stage)).length/leads.length*100):0,
+    closeRate:leads.length?Math.round(won.length/leads.length*100):0,
+    topChannel:(()=>{const c={};leads.forEach(l=>c[l.channel]=(c[l.channel]||0)+1);return Object.entries(c).sort((a,b)=>b[1]-a[1])[0]?.[0]||"—";})(),
+    avgScore:leads.length?Math.round(leads.reduce((a,l)=>a+(l.score||0),0)/leads.length):0,
+  };
+
+  const s={
+    hdr:{background:W,borderBottom:"1px solid #e8e2d0",padding:"10px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:6,position:"sticky",top:0,zIndex:50},
+    nav:{display:"flex",gap:2,flexWrap:"wrap"},
+    tab:(a)=>({padding:"5px 10px",fontSize:9,letterSpacing:.8,textTransform:"uppercase",border:`1px solid ${a?G:"#e0d8c8"}`,background:a?G:"transparent",color:a?W:"#999",cursor:"pointer",borderRadius:4,whiteSpace:"nowrap"}),
+    btn:{padding:"7px 14px",fontSize:10,letterSpacing:.8,textTransform:"uppercase",border:`1px solid ${G}`,background:G,color:W,cursor:"pointer",borderRadius:5},
+    btnG:{padding:"7px 14px",fontSize:10,letterSpacing:.8,textTransform:"uppercase",border:`1px solid ${G}`,background:"transparent",color:G,cursor:"pointer",borderRadius:5},
+    bsm:(c=G,f=false)=>({padding:"4px 9px",fontSize:9,letterSpacing:.5,textTransform:"uppercase",border:`1px solid ${c}`,background:f?c:"transparent",color:f?W:c,cursor:"pointer",borderRadius:4}),
+    card:{background:W,border:"1px solid #e8e2d0",borderRadius:7,padding:"13px",marginBottom:8},
+    badge:(st)=>({display:"inline-block",padding:"2px 7px",borderRadius:20,fontSize:9,fontWeight:600,background:SC[st]?.[0]||"#eee",color:SC[st]?.[1]||"#666"}),
+    tier:(t)=>({display:"inline-block",padding:"2px 7px",borderRadius:3,fontSize:9,fontWeight:700,background:t==="A"?"#fdecea":t==="B"?"#fdf3e0":"#f4f4f4",color:t==="A"?"#c0392b":t==="B"?G:"#888",letterSpacing:.8}),
+    inp:{width:"100%",padding:"7px 10px",border:"1px solid #e0d8c8",borderRadius:5,fontSize:12,background:W,color:D,marginBottom:6,boxSizing:"border-box"},
+    lbl:{fontSize:9,letterSpacing:.8,textTransform:"uppercase",color:"#aaa",marginBottom:2,display:"block"},
+    modal:{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,.55)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:200,padding:12},
+    mbox:{background:W,borderRadius:10,padding:20,width:"100%",maxWidth:520,maxHeight:"90vh",overflowY:"auto"},
+    pre:{background:"#fafaf8",border:"1px solid #e8e2d0",borderRadius:6,padding:12,fontSize:12,lineHeight:1.85,whiteSpace:"pre-wrap",marginTop:8},
+    r2:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7},
+    sec:{fontSize:10,fontWeight:600,letterSpacing:1,textTransform:"uppercase",color:"#bbb",marginBottom:8},
+    div:{height:1,background:"#e8e2d0",margin:"12px 0"},
+    gl:{borderLeft:`2px solid ${G}`},
+    rd:{borderLeft:`2px solid #c0392b`},
+    sb:{background:W,border:"1px solid #e8e2d0",borderRadius:7,padding:"11px 10px",textAlign:"center",flex:1,minWidth:55},
+  };
+
+  const VIEWS=[{k:"command",l:"Command"},{k:"pipeline",l:"Pipeline"},{k:"gen",l:"Leads"},{k:"msg",l:"Messages"},{k:"import",l:"Import"},{k:"rep",l:"Rep"},{k:"analytics",l:"Stats"}];
+
+  return (
+    <div style={{fontFamily:"'Helvetica Neue',sans-serif",color:D,background:BG,minHeight:"100vh"}}>
+      <div style={s.hdr}>
+        <span style={{fontFamily:"Georgia,serif",fontSize:16,color:G}}>GW — Outreach OS</span>
+        <div style={s.nav}>{VIEWS.map(v=><button key={v.k} style={s.tab(view===v.k)} onClick={()=>setView(v.k)}>{v.l}{v.k==="command"&&dueToday.length>0?` ⚠${dueToday.length}`:""}</button>)}</div>
+        <div style={{display:"flex",gap:6}}>
+          <button style={s.bsm()} onClick={()=>setShowKey(true)}>API Key</button>
+          <button style={s.btn} onClick={()=>setModal("add")}>+ Lead</button>
+        </div>
+      </div>
+
+      <div style={{padding:"13px 16px",maxWidth:860,margin:"0 auto"}}>
+        <div style={{display:"flex",gap:5,marginBottom:12,flexWrap:"wrap"}}>
+          {[{l:"Total",v:leads.length},{l:"Active",v:active.length},{l:"A-Tier",v:tierA.length},{l:"Due",v:dueToday.length},{l:"Won",v:won.length},{l:"Score",v:`${totalScore}%`}].map(x=>(
+            <div key={x.l} style={s.sb}><div style={{fontSize:20,fontWeight:400,color:G}}>{x.v}</div><div style={{fontSize:8,letterSpacing:1,textTransform:"uppercase",color:"#bbb",marginTop:1}}>{x.l}</div></div>
+          ))}
+        </div>
+
+        {/* COMMAND */}
+        {view==="command"&&<div>
+          <div style={{...s.card,...s.gl,marginBottom:10}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8,flexWrap:"wrap",gap:6}}>
+              <span style={{fontSize:13,fontWeight:500}}>Daily Briefing</span>
+              <button style={s.btn} onClick={genBriefing} disabled={loading.briefing}>{loading.briefing?"...":"✦ Generate"}</button>
+            </div>
+            {loading.briefing&&<div style={{fontSize:12,color:"#bbb",padding:"16px 0",textAlign:"center"}}>Generating briefing...</div>}
+            {out.briefing&&<div style={s.pre}>{out.briefing}</div>}
+            {!out.briefing&&!loading.briefing&&<p style={{fontSize:11,color:"#bbb"}}>Your AI-powered daily action plan. Generate every morning.</p>}
+          </div>
+          {dueToday.length>0&&<>
+            <div style={s.sec}>{dueToday.length} follow-up{dueToday.length!==1?"s":""} due today</div>
+            {dueToday.sort((a,b)=>a.tier.localeCompare(b.tier)).map(l=>(
+              <div key={l.id} style={{...s.card,...(l.tier==="A"?s.rd:{})}}>
+                <div style={{display:"flex",gap:5,alignItems:"center",flexWrap:"wrap",marginBottom:3}}>
+                  <span style={{fontWeight:500,fontSize:13}}>{l.name}</span>
+                  <span style={s.tier(l.tier)}>{l.tier}</span>
+                  <span style={s.badge(l.stage)}>{l.stage}</span>
+                  {l.score&&<span style={{fontSize:9,color:G}}>★{l.score}</span>}
+                </div>
+                <div style={{fontSize:11,color:"#888"}}>{l.type} · {l.city} · {l.contact}</div>
+                {l.notes&&<div style={{fontSize:11,color:"#555",marginTop:2}}>{l.notes.slice(0,80)}</div>}
+                <div style={{display:"flex",gap:5,marginTop:8,flexWrap:"wrap"}}>
+                  <button style={s.bsm(G,true)} onClick={()=>{setMsgLead(l);setMsgChan(l.email||l.channel==="Cold Email"?"email":l.channel==="LinkedIn"?"linkedin":"dm");setView("msg");}}>✦ Message</button>
+                  <button style={s.bsm()} onClick={()=>research(l)}>Research</button>
+                  <select style={{...s.inp,width:"auto",marginBottom:0,fontSize:10}} value={l.stage} onChange={e=>upLead(l.id,{stage:e.target.value})}>{STAGES.map(st=><option key={st}>{st}</option>)}</select>
+                  <input type="date" style={{...s.inp,width:118,marginBottom:0,fontSize:10}} value={l.followUpDate||""} onChange={e=>upLead(l.id,{followUpDate:e.target.value})}/>
+                </div>
+              </div>
+            ))}
+          </>}
+          {out.research&&<div style={s.card}><div style={{fontSize:10,color:G,fontWeight:600,marginBottom:6}}>Lead Intelligence</div><div style={s.pre}>{out.research}</div></div>}
+        </div>}
+
+        {/* PIPELINE */}
+        {view==="pipeline"&&<div>
+          <div style={{display:"flex",gap:6,marginBottom:10,flexWrap:"wrap",alignItems:"center"}}>
+            <select style={{...s.inp,width:"auto",marginBottom:0,fontSize:10}} value={filterTier} onChange={e=>setFilterTier(e.target.value)}><option>All</option>{["A","B","C"].map(t=><option key={t}>{t}</option>)}</select>
+            <select style={{...s.inp,width:"auto",marginBottom:0,fontSize:10}} value={filterStage} onChange={e=>setFilterStage(e.target.value)}><option>All</option>{STAGES.map(st=><option key={st}>{st}</option>)}</select>
+            <span style={{fontSize:10,color:"#bbb"}}>{filtered.length} leads</span>
+          </div>
+          {filtered.map(l=>(
+            <div key={l.id} style={{...s.card,...(l.tier==="A"&&!["Won","Lost"].includes(l.stage)?{borderLeft:"2px solid #c0392b"}:{})}}>
+              <div style={{display:"flex",gap:5,alignItems:"center",flexWrap:"wrap",marginBottom:2}}>
+                <span style={{fontWeight:500,fontSize:13}}>{l.name}</span>
+                <span style={s.tier(l.tier)}>{l.tier}</span>
+                <span style={s.badge(l.stage)}>{l.stage}</span>
+                {l.score&&<span style={{fontSize:9,color:G}}>★{l.score}</span>}
+              </div>
+              <div style={{fontSize:11,color:"#888"}}>{l.type} · {l.city} · {l.channel}: {l.contact}</div>
+              {l.notes&&<div style={{fontSize:11,color:"#555",marginTop:2}}>{l.notes.slice(0,80)}</div>}
+              {l.followUpDate&&<div style={{fontSize:9,color:l.followUpDate<=todayStr?"#c0392b":G,marginTop:2}}>↻ {fmt(l.followUpDate)}{l.followUpDate<=todayStr?" ⚠":""}</div>}
+              <div style={{display:"flex",gap:4,marginTop:8,flexWrap:"wrap"}}>
+                <button style={s.bsm(G,true)} onClick={()=>{setMsgLead(l);setMsgChan(l.email||l.channel==="Cold Email"?"email":l.channel==="LinkedIn"?"linkedin":"dm");setView("msg");}}>✦ Msg</button>
+                <button style={s.bsm()} onClick={()=>research(l)}>Intel</button>
+                <button style={s.bsm()} onClick={()=>setEditLead({...l})}>Edit</button>
+                <select style={{...s.inp,width:"auto",marginBottom:0,fontSize:10}} value={l.stage} onChange={e=>upLead(l.id,{stage:e.target.value})}>{STAGES.map(st=><option key={st}>{st}</option>)}</select>
+                <select style={{...s.inp,width:"auto",marginBottom:0,fontSize:10}} value={l.tier} onChange={e=>upLead(l.id,{tier:e.target.value})}>{["A","B","C"].map(t=><option key={t}>{t}</option>)}</select>
+                <button style={s.bsm("#e74c3c")} onClick={()=>delLead(l.id)}>✕</button>
+              </div>
+            </div>
+          ))}
+          {out.research&&<div style={s.card}><div style={{fontSize:10,color:G,fontWeight:600,marginBottom:6}}>Lead Intelligence</div><div style={s.pre}>{out.research}</div></div>}
+        </div>}
+
+        {/* LEAD GEN */}
+        {view==="gen"&&<div>
+          <div style={{...s.card,...s.gl,marginBottom:10}}>
+            <div style={{fontSize:13,fontWeight:500,marginBottom:4}}>AI Lead Generator</div>
+            <p style={{fontSize:12,color:"#666",lineHeight:1.8,marginBottom:8}}>Generates 15 pre-scored, tiered leads across all major US cities.</p>
+            <button style={s.btn} onClick={genLeads} disabled={loading.leads_raw}>{loading.leads_raw?"Finding...":"✦ Generate 15 Leads"}</button>
+          </div>
+          {loading.leads_raw&&<div style={{fontSize:12,color:"#bbb",textAlign:"center",padding:16}}>Finding leads...</div>}
+          {(out.leads||[]).map((l,i)=>{
+            const exists=leads.find(x=>x.name===l.name);
+            return(
+              <div key={i} style={{...s.card,opacity:exists?.5:1}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:6}}>
+                  <div style={{flex:1}}>
+                    <div style={{display:"flex",gap:5,alignItems:"center",flexWrap:"wrap",marginBottom:2}}>
+                      <span style={{fontWeight:500,fontSize:13}}>{l.name}</span>
+                      <span style={s.tier(l.tier||"B")}>{l.tier||"B"}</span>
+                      {l.score&&<span style={{fontSize:9,color:G}}>★{l.score}</span>}
+                    </div>
+                    <div style={{fontSize:11,color:"#888"}}>{l.type} · {l.city} · {l.channel}: {l.contact}</div>
+                    <div style={{fontSize:11,color:"#555",marginTop:2}}>{l.notes}</div>
+                  </div>
+                  {exists?<span style={{fontSize:9,color:"#bbb"}}>Added</span>:<button style={s.btn} onClick={()=>addLead({...l,stage:"New Lead"})}>+</button>}
+                </div>
+              </div>
+            );
+          })}
+          {(out.leads||[]).length>0&&<button style={{...s.btnG,width:"100%",marginTop:4}} onClick={genLeads} disabled={loading.leads_raw}>Generate 15 More</button>}
+        </div>}
+
+        {/* MESSAGES */}
+        {view==="msg"&&<div>
+          <div style={{...s.card,...s.gl}}>
+            <div style={{fontSize:13,fontWeight:500,marginBottom:8}}>Message Center</div>
+            <label style={s.lbl}>Lead</label>
+            <select style={s.inp} value={msgLead?.id||""} onChange={e=>{const l=active.find(x=>x.id===parseInt(e.target.value));setMsgLead(l||null);setO("msg","");setO("sequence","");}}>
+              <option value="">— Select lead —</option>
+              {active.map(l=><option key={l.id} value={l.id}>{l.name} ({l.tier}) — {l.stage}</option>)}
+            </select>
+            {msgLead&&<>
+              <div style={{fontSize:11,color:"#666",marginBottom:8}}>{msgLead.type} · {msgLead.city}</div>
+              <div style={s.r2}>
+                <div><label style={s.lbl}>Channel</label>
+                  <select style={s.inp} value={msgChan} onChange={e=>{setMsgChan(e.target.value);setO("msg","");}}>
+                    {["email","linkedin","dm"].map(t=><option key={t}>{t}</option>)}
+                  </select>
+                </div>
+                <div><label style={s.lbl}>Position</label>
+                  <select style={s.inp} value={msgPos} onChange={e=>{setMsgPos(e.target.value);setO("msg","");}}>
+                    <option value="1">#1 Cold Open</option>
+                    <option value="2">#2 Follow-up Day 5</option>
+                    <option value="3">#3 Final Day 10</option>
+                    <option value="reply">Replied — Push Forward</option>
+                    <option value="objection">Has Supplier — Handle</option>
+                    <option value="show">Pre-JCK Show</option>
+                  </select>
+                </div>
+              </div>
+              <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                <button style={s.btn} onClick={genMsg} disabled={loading.msg}>{loading.msg?"Writing...":"✦ Generate"}</button>
+                <button style={s.btnG} onClick={genSequence} disabled={loading.sequence}>{loading.sequence?"Building...":"✦ 7-Touch Sequence"}</button>
+              </div>
+              {loading.msg&&<div style={{fontSize:12,color:"#bbb",padding:"12px 0",textAlign:"center"}}>Writing message...</div>}
+              {out.msg&&!loading.msg&&<>
+                <div style={s.pre}>{out.msg}</div>
+                <div style={{display:"flex",gap:5,marginTop:8,flexWrap:"wrap"}}>
+                  <button style={s.btn} onClick={()=>cp(out.msg,"msg")}>{copied==="msg"?"Copied!":"Copy"}</button>
+                  <button style={s.btnG} onClick={()=>{upLead(msgLead.id,{stage:msgChan==="email"?"Emailed":msgChan==="linkedin"?"LinkedIn":"DM Sent",followUpDate:addDays(todayStr,msgLead.tier==="A"?3:5)});incProg(msgChan==="email"?"emails_sent":"dms_sent");}}>Mark Sent</button>
+                  <button style={s.btnG} onClick={()=>{setO("msg","");genMsg();}}>↺</button>
+                </div>
+              </>}
+              {loading.sequence&&<div style={{fontSize:12,color:"#bbb",padding:"12px 0",textAlign:"center"}}>Building sequence...</div>}
+              {out.sequence&&!loading.sequence&&<>
+                <div style={{fontSize:10,color:G,fontWeight:600,marginTop:12,marginBottom:4}}>7-Touch Sequence</div>
+                <div style={s.pre}>{out.sequence}</div>
+                <button style={{...s.btn,marginTop:8}} onClick={()=>cp(out.sequence,"seq")}>{copied==="seq"?"Copied!":"Copy"}</button>
+              </>}
+            </>}
+          </div>
+        </div>}
+
+        {/* IMPORT */}
+        {view==="import"&&<div>
+          <div style={{...s.card,...s.gl,marginBottom:10}}>
+            <div style={{fontSize:13,fontWeight:500,marginBottom:4}}>Contact Importer</div>
+            <p style={{fontSize:12,color:"#666",lineHeight:1.8,marginBottom:8}}>Paste anything messy — handles, emails, notes, spreadsheet rows. AI cleans and structures everything.</p>
+            <textarea style={{...s.inp,height:100,resize:"vertical"}} value={importTxt} onChange={e=>setImportTxt(e.target.value)} placeholder="Paste messy contacts here..."/>
+            <button style={s.btn} onClick={importContacts} disabled={loading.import_raw}>{loading.import_raw?"Cleaning...":"✦ Clean + Import"}</button>
+          </div>
+          {loading.import_raw&&<div style={{fontSize:12,color:"#bbb",textAlign:"center",padding:16}}>Cleaning contacts...</div>}
+          {(out.importParsed||[]).map((l,i)=>{
+            const exists=leads.find(x=>x.name===l.name);
+            return(
+              <div key={i} style={{...s.card,opacity:exists?.5:1}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:6}}>
+                  <div>
+                    <div style={{display:"flex",gap:5,alignItems:"center",flexWrap:"wrap",marginBottom:2}}>
+                      <span style={{fontWeight:500,fontSize:13}}>{l.name||"Unknown"}</span>
+                      <span style={s.tier(l.tier||"C")}>{l.tier||"C"}</span>
+                    </div>
+                    <div style={{fontSize:11,color:"#888"}}>{l.type} · {l.city||"?"} · {l.contact||l.email}</div>
+                    {l.notes&&<div style={{fontSize:11,color:"#555",marginTop:2}}>{l.notes}</div>}
+                  </div>
+                  {exists?<span style={{fontSize:9,color:"#bbb"}}>In pipeline</span>:<button style={s.btn} onClick={()=>addLead({...l,stage:"New Lead"})}>+</button>}
+                </div>
+              </div>
+            );
+          })}
+        </div>}
+
+        {/* REP TRACKER */}
+        {view==="rep"&&<div>
+          <div style={{...s.card,...s.gl,textAlign:"center",padding:"20px 14px",marginBottom:10}}>
+            <div style={{fontSize:44,fontWeight:400,color:totalScore===100?"#27ae60":G,lineHeight:1}}>{totalScore}%</div>
+            <div style={{fontSize:9,color:"#bbb",letterSpacing:1,textTransform:"uppercase",marginTop:4,marginBottom:8}}>Daily Score</div>
+            <div style={{background:"#f0ece0",borderRadius:4,height:8,marginBottom:8}}>
+              <div style={{background:totalScore===100?"#27ae60":G,width:`${totalScore}%`,height:8,borderRadius:4,transition:"width .4s"}}/>
+            </div>
+            <div style={{fontSize:11,color:"#888"}}>{todayComplete}/{DAILY_GOALS.length} goals · {streak.days} day streak{streak.days>0?" 🔥":""}</div>
+            {totalScore===100&&<div style={{fontSize:12,color:"#27ae60",fontWeight:600,marginTop:6}}>Daily quota crushed. Stack the streak.</div>}
+          </div>
+          {DAILY_GOALS.map(g=>{
+            const cur=progress.counts[g.id]||0;
+            const done=cur>=g.target;
+            const gpct=Math.min(Math.round(cur/g.target*100),100);
+            return(
+              <div key={g.id} style={{...s.card,borderLeft:`2px solid ${done?"#27ae60":G}`}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:6}}>
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:12,fontWeight:500,color:done?"#27ae60":D}}>{done?"✓ ":""}{g.label}</div>
+                    <div style={{display:"flex",alignItems:"center",gap:8,marginTop:5}}>
+                      <div style={{flex:1,background:"#f0ece0",borderRadius:3,height:4}}>
+                        <div style={{background:done?"#27ae60":G,width:`${gpct}%`,height:4,borderRadius:3,transition:"width .3s"}}/>
+                      </div>
+                      <span style={{fontSize:10,color:"#aaa",whiteSpace:"nowrap"}}>{cur}/{g.target} {g.unit}</span>
+                    </div>
+                  </div>
+                  {!done&&<button style={s.bsm(G,true)} onClick={()=>incProg(g.id)}>+1</button>}
+                </div>
+              </div>
+            );
+          })}
+        </div>}
+
+        {/* ANALYTICS */}
+        {view==="analytics"&&<div>
+          <div style={s.sec}>Performance</div>
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(110px,1fr))",gap:8,marginBottom:14}}>
+            {[{l:"Reply Rate",v:`${analytics.replyRate}%`},{l:"Close Rate",v:`${analytics.closeRate}%`},{l:"Avg Score",v:analytics.avgScore},{l:"Top Channel",v:analytics.topChannel}].map(x=>(
+              <div key={x.l} style={s.sb}><div style={{fontSize:18,fontWeight:400,color:G}}>{x.v}</div><div style={{fontSize:8,letterSpacing:.8,textTransform:"uppercase",color:"#bbb",marginTop:1}}>{x.l}</div></div>
+            ))}
+          </div>
+          <div style={s.sec}>By Stage</div>
+          {STAGES.map(st=>{const n=leads.filter(l=>l.stage===st).length;const p=leads.length?Math.round(n/leads.length*100):0;return n>0&&(<div key={st} style={{marginBottom:7}}><div style={{display:"flex",justifyContent:"space-between",fontSize:11,marginBottom:2}}><span style={s.badge(st)}>{st}</span><span style={{color:"#aaa"}}>{n}</span></div><div style={{background:"#f0ece0",borderRadius:3,height:4}}><div style={{background:G,width:`${p}%`,height:4,borderRadius:3}}/></div></div>);})}
+          <div style={s.div}/>
+          <div style={s.sec}>By Channel</div>
+          {CHANNELS.map(ch=>{const n=leads.filter(l=>l.channel===ch).length;return n>0&&(<div key={ch} style={{display:"flex",justifyContent:"space-between",fontSize:11,padding:"4px 0",borderBottom:"1px solid #f0ece0"}}><span>{ch}</span><span style={{color:G,fontWeight:500}}>{n}</span></div>);})}
+        </div>}
+      </div>
+
+      {/* API KEY MODAL */}
+      {showKey&&<div style={s.modal} onClick={()=>setShowKey(false)}>
+        <div style={s.mbox} onClick={e=>e.stopPropagation()}>
+          <h3 style={{fontWeight:400,fontSize:16,marginBottom:8}}>Anthropic API Key</h3>
+          <p style={{fontSize:12,color:"#666",lineHeight:1.8,marginBottom:12}}>Get your key at <a href="https://console.anthropic.com" target="_blank" style={{color:G}}>console.anthropic.com</a> → API Keys. Stored locally in your browser only.</p>
+          <label style={s.lbl}>API Key</label>
+          <input style={s.inp} type="password" defaultValue={apiKey} id="keyInput" placeholder="sk-ant-..."/>
+          <div style={{display:"flex",gap:6,justifyContent:"flex-end",marginTop:4}}>
+            <button style={s.btnG} onClick={()=>setShowKey(false)}>Cancel</button>
+            <button style={s.btn} onClick={()=>saveKey(document.getElementById("keyInput").value)}>Save Key</button>
+          </div>
+        </div>
+      </div>}
+
+      {/* ADD MODAL */}
+      {modal==="add"&&<div style={s.modal} onClick={()=>setModal(null)}>
+        <div style={s.mbox} onClick={e=>e.stopPropagation()}>
+          <h3 style={{fontWeight:400,fontSize:16,marginBottom:12}}>Add Lead</h3>
+          <label style={s.lbl}>Business Name *</label>
+          <input style={s.inp} value={form.name} onChange={e=>setForm(p=>({...p,name:e.target.value}))} placeholder="e.g. Diamond Setters NYC" autoFocus/>
+          <div style={s.r2}>
+            <div><label style={s.lbl}>Type</label><select style={s.inp} value={form.type} onChange={e=>setForm(p=>({...p,type:e.target.value}))}>{TYPES.map(t=><option key={t}>{t}</option>)}</select></div>
+            <div><label style={s.lbl}>Tier</label><select style={s.inp} value={form.tier} onChange={e=>setForm(p=>({...p,tier:e.target.value}))}><option value="A">A — High Priority</option><option value="B">B — Medium</option><option value="C">C — Nurture</option></select></div>
+          </div>
+          <div style={s.r2}>
+            <div><label style={s.lbl}>City</label><input style={s.inp} value={form.city} onChange={e=>setForm(p=>({...p,city:e.target.value}))}/></div>
+            <div><label style={s.lbl}>Channel</label><select style={s.inp} value={form.channel} onChange={e=>setForm(p=>({...p,channel:e.target.value}))}>{CHANNELS.map(t=><option key={t}>{t}</option>)}</select></div>
+          </div>
+          <div style={s.r2}>
+            <div><label style={s.lbl}>Contact</label><input style={s.inp} value={form.contact} onChange={e=>setForm(p=>({...p,contact:e.target.value}))} placeholder="@handle"/></div>
+            <div><label style={s.lbl}>Email</label><input style={s.inp} value={form.email} onChange={e=>setForm(p=>({...p,email:e.target.value}))} placeholder="email@biz.com"/></div>
+          </div>
+          <div style={s.r2}>
+            <div><label style={s.lbl}>Their Title</label><input style={s.inp} value={form.title} onChange={e=>setForm(p=>({...p,title:e.target.value}))} placeholder="Owner"/></div>
+            <div><label style={s.lbl}>Follow-up Date</label><input type="date" style={s.inp} value={form.followUpDate} onChange={e=>setForm(p=>({...p,followUpDate:e.target.value}))}/></div>
+          </div>
+          <label style={s.lbl}>Notes</label>
+          <textarea style={{...s.inp,height:54,resize:"vertical"}} value={form.notes} onChange={e=>setForm(p=>({...p,notes:e.target.value}))} placeholder="Why a fit?"/>
+          <div style={{display:"flex",gap:6,justifyContent:"flex-end"}}>
+            <button style={s.btnG} onClick={()=>setModal(null)}>Cancel</button>
+            <button style={s.btn} onClick={()=>{if(!form.name.trim())return;addLead(form);setForm({name:"",contact:"",email:"",type:"Setter/Studio",city:"Los Angeles",channel:"Cold Email",stage:"New Lead",tier:"B",notes:"",followUpDate:"",title:"Owner"});setModal(null);}}>Add</button>
+          </div>
+        </div>
+      </div>}
+
+      {/* EDIT MODAL */}
+      {editLead&&<div style={s.modal} onClick={()=>setEditLead(null)}>
+        <div style={s.mbox} onClick={e=>e.stopPropagation()}>
+          <h3 style={{fontWeight:400,fontSize:16,marginBottom:12}}>Edit — {editLead.name}</h3>
+          <div style={s.r2}>
+            <div><label style={s.lbl}>Name</label><input style={s.inp} value={editLead.name} onChange={e=>setEditLead(p=>({...p,name:e.target.value}))}/></div>
+            <div><label style={s.lbl}>Tier</label><select style={s.inp} value={editLead.tier} onChange={e=>setEditLead(p=>({...p,tier:e.target.value}))}>{["A","B","C"].map(t=><option key={t}>{t}</option>)}</select></div>
+          </div>
+          <div style={s.r2}>
+            <div><label style={s.lbl}>Stage</label><select style={s.inp} value={editLead.stage} onChange={e=>setEditLead(p=>({...p,stage:e.target.value}))}>{STAGES.map(t=><option key={t}>{t}</option>)}</select></div>
+            <div><label style={s.lbl}>Follow-up</label><input type="date" style={s.inp} value={editLead.followUpDate||""} onChange={e=>setEditLead(p=>({...p,followUpDate:e.target.value}))}/></div>
+          </div>
+          <div style={s.r2}>
+            <div><label style={s.lbl}>Contact</label><input style={s.inp} value={editLead.contact} onChange={e=>setEditLead(p=>({...p,contact:e.target.value}))}/></div>
+            <div><label style={s.lbl}>Email</label><input style={s.inp} value={editLead.email||""} onChange={e=>setEditLead(p=>({...p,email:e.target.value}))}/></div>
+          </div>
+          <label style={s.lbl}>Notes</label>
+          <textarea style={{...s.inp,height:54,resize:"vertical"}} value={editLead.notes||""} onChange={e=>setEditLead(p=>({...p,notes:e.target.value}))}/>
+          <div style={{display:"flex",gap:6,justifyContent:"flex-end"}}>
+            <button style={s.btnG} onClick={()=>setEditLead(null)}>Cancel</button>
+            <button style={s.btn} onClick={()=>{setLeads(p=>p.map(l=>l.id===editLead.id?editLead:l));setEditLead(null);}}>Save</button>
+          </div>
+        </div>
+      </div>}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
