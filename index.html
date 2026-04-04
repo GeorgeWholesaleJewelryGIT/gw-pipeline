@@ -31,7 +31,7 @@ const today=()=>new Date().toISOString().split("T")[0];
 const addDays=(d,n)=>{const dt=new Date(d||today());dt.setDate(dt.getDate()+n);return dt.toISOString().split("T")[0];};
 const fmt=d=>d?new Date(d).toLocaleDateString("en-US",{month:"short",day:"numeric"}):"—";
 const ai=async(prompt,sys=SYS,apiKey)=>{
-  const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json","x-api-key":apiKey,"anthropic-version":"2023-06-01"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1500,system:sys,messages:[{role:"user",content:prompt}]})});
+  const r=await fetch("/api/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt,system:sys,apiKey})});
   const d=await r.json();
   return d.content?.[0]?.text||d.error?.message||"Error";
 };
