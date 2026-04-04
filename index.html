@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GW — Outreach OS</title>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:'Helvetica Neue',sans-serif;background:#f7f5f0;color:#1a1a1a}
+  input,select,textarea,button{font-family:'Helvetica Neue',sans-serif;outline:none}
+  ::-webkit-scrollbar{width:4px} ::-webkit-scrollbar-track{background:#f0ece0} ::-webkit-scrollbar-thumb{background:#C9A84C;border-radius:2px}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect } = React;
+
+const G="#C9A84C",D="#1a1a1a",W="#fff",BG="#f7f5f0";
+const STAGES=["New Lead","Researched","Emailed","DM Sent","LinkedIn","Replied","Call Booked","Catalog Sent","Negotiating","Won","Lost","Nurture"];
+const SC={"New Lead":["#f5f0e8","#7a6a3a"],"Researched":["#eef0fa","#3a4a8a"],"Emailed":["#f0e8fa","#5a1a8a"],"DM Sent":["#e8f0fa","#1a4a8a"],"LinkedIn":["#e8f0ff","#1a1a8a"],"Replied":["#e8f5ee","#1a6a3a"],"Call Booked":["#fff0e0","#8a5a00"],"Catalog Sent":["#fdf3e0","#7a5a1a"],"Negotiating":["#fdebd0","#7a3a1a"],"Won":["#e6f4ea","#1a5a2a"],"Lost":["#f4f4f4","#888"],"Nurture":["#f0e8f5","#6a1a7a"]};
+const TYPES=["Setter/Studio","Retail Jeweler","Lab Diamond Dealer","Jewelry Manufacturer","Custom Jeweler","Pawn/Estate"];
+const CHANNELS=["Cold Email","Instagram","LinkedIn","In-Person","Trade Show","Referral"];
+const CITIES=["New York","Los Angeles","Miami","Dallas","Chicago","Houston","Las Vegas","Atlanta","Seattle","Phoenix","Boston","San Francisco","Denver","Orlando","Detroit"];
+const SYS=`You are George's elite B2B wholesale outreach strategist. George's Wholesale sells 14K gold mountings (tennis bracelets, necklaces, rings) wholesale from LA. Best clients: bench jewelers and stone setters who buy mountings, stone them, flip to retail. Target: businesses doing $15K–$100K/month. George is 19, building from scratch. Be ruthlessly direct and specific.`;
+const DAILY_GOALS=[{id:"new_leads",label:"Find & add 10 new leads",target:10,unit:"leads"},{id:"emails_sent",label:"Send 15 cold emails",target:15,unit:"emails"},{id:"dms_sent",label:"Send 20 DMs / LinkedIn touches",target:20,unit:"touches"},{id:"followups",label:"Complete all due follow-ups",target:1,unit:"batch"},{id:"research",label:"Research 5 leads before outreach",target:5,unit:"researched"},{id:"replies",label:"Reply to every inbound within 2hrs",target:1,unit:"batch"},{id:"sequences",label:"Build 3 full 7-touch sequences",target:3,unit:"sequences"}];
+const DEMO=[{id:1,name:"Diamond Setters LA",contact:"@diamondsettersla",email:"",type:"Setter/Studio",city:"Los Angeles",channel:"Instagram",stage:"Replied",tier:"A",notes:"Interested in tennis bracelets. Asked about MOQ.",lastContact:"2026-03-30",followUpDate:"2026-04-03",score:88},{id:2,name:"Goldmark Fine Jewelry",contact:"info@goldmarkjewelry.com",email:"info@goldmarkjewelry.com",type:"Retail Jeweler",city:"Miami",channel:"Cold Email",stage:"Catalog Sent",tier:"A",notes:"Restocks quarterly. Budget ~$10k/quarter.",lastContact:"2026-04-01",followUpDate:"2026-04-04",score:92},{id:3,name:"Priya Gem Studio",contact:"@priyagemstudio",email:"",type:"Setter/Studio",city:"New York",channel:"Instagram",stage:"DM Sent",tier:"B",notes:"Heavy lab diamond work.",lastContact:"2026-04-02",followUpDate:"2026-04-05",score:74}];
+
+const today=()=>new Date().toISOString().split("T")[0];
+const addDays=(d,n)=>{const dt=new Date(d||today());dt.setDate(dt.getDate()+n);return dt.toISOString().split("T")[0];};
+const fmt=d=>d?new Date(d).toLocaleDateString("en-US",{month:"short",day:"numeric"}):"—";
+
+const ai=async(prompt,sys=SYS,mcp=null)=>{
+  const body={model:"claude-sonnet-4-20250514",max_tokens:1500,system:sys,messages:[{role:"user",content:prompt}]};
+  if(mcp)body.mcp_servers=mcp;
+  const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+  const d=await r.json();
+  if(mcp)return(d.content||[]).filter(b=>b.type==="text").map(b=>b.text).join("\n");
+  return d.content?.[0]?.text||"";
+};
+
+const GMAIL_MCP=[{type:"url",url:"https://gmail.mcp.claude.com/mcp",name:"gmail"}];
+
+function Spinner(){return React.createElement("div",{style:{textAlign:"center",padding:"24px",color:"#bbb",fontSize:12}},"Generating...")}
+
+function App(){
+  const [leads,setLeads]=useState(()=>{try{const s=localStorage.getItem("gw_leads");return s?JSON.parse(s):DEMO;}catch{return DEMO;}});
+  const [view,setView]=useState("command");
+  const [modal,setModal]=useState(null);
+  const [editLead,setEditLead]=useState(null);
+  const [aiPanel,setAiPanel]=useState({open:false,title:"",content:"",loading:false,leadId:null});
+  const [loading,setLoading]=useState({});
+  const [out,setOut]=useState({});
+  const [filterTier,setFilterTier]=useState("All");
+  const [filterStage,setFilterStage]=useState("All");
+  const [msgLead,setMsgLead]=useState(null);
+  const [msgChan,setMsgChan]=useState("email");
+  const [msgPos,setMsgPos]=useState("1");
+  const [copied,setCopied]=useState("");
+  const [importTxt,setImportTxt]=useState("");
+  const [progress,setProgress]=useState(()=>{try{const s=localStorage.getItem("gw_prog");const p=s?JSON.parse(s):{date:today(),counts:{}};return p.date!==today()?{date:today(),counts:{}}:p;}catch{return{date:today(),counts:{}};}});
+  const [streak,setStreak]=useState(()=>{try{const s=localStorage.getItem("gw_streak");return s?JSON.parse(s):{days:0,lastWin:""};}catch{return{days:0,lastWin:""};}});
+  const [form,setForm]=useState({name:"",contact:"",email:"",type:"Setter/Studio",city:"Los Angeles",channel:"Cold Email",stage:"New Lead",tier:"B",notes:"",followUpDate:"",title:"Owner"});
+
+  useEffect(()=>{try{localStorage.setItem("gw_leads",JSON.stringify(leads));}catch{}},[leads]);
+  useEffect(()=>{try{localStorage.setItem("gw_prog",JSON.stringify(progress));}catch{}},[progress]);
+  useEffect(()=>{try{localStorage.setItem("gw_streak",JSON.stringify(streak));}catch{}},[streak]);
+
+  const todayStr=today();
+  const dueToday=leads.filter(l=>l.followUpDate&&l.followUpDate<=todayStr&&!["Won","Lost"].includes(l.stage));
+  const active=leads.filter(l=>!["Won","Lost"].includes(l.stage));
+  const tierA=leads.filter(l=>l.tier==="A"&&!["Won","Lost"].includes(l.stage));
+  const won=leads.filter(l=>l.stage==="Won");
+
+  const setL=(k,v)=>setLoading(p=>({...p,[k]:v}));
+  const setO=(k,v)=>setOut(p=>({...p,[k]:v}));
+  const cp=(t,k)=>{navigator.clipboard?.writeText(t);setCopied(k);setTimeout(()=>setCopied(""),2000);};
+  const incProgress=(key,n=1)=>setProgress(p=>({...p,counts:{...p.counts,[key]:(p.counts[key]||0)+n}}));
+  const addLead=l=>{setLeads(p=>[{...l,id:Date.now(),lastContact:todayStr,followUpDate:l.followUpDate||addDays(todayStr,l.tier==="A"?1:3)},...p]);incProgress("new_leads");};
+  const upLead=(id,patch)=>setLeads(p=>p.map(l=>l.id===id?{...l,...patch,lastContact:todayStr}:l));
+  const delLead=id=>setLeads(p=>p.filter(l=>l.id!==id));
+
+  const runAI=async(title,prompt,leadId=null,mcp=null)=>{
+    setAiPanel({open:true,title,content:"",loading:true,leadId});
+    const result=await ai(prompt,SYS,mcp);
+    setAiPanel({open:true,title,content:result,loading:false,leadId});
+    return result;
+  };
+
+  const todayComplete=DAILY_GOALS.filter(g=>(progress.counts[g.id]||0)>=g.target).length;
+  const totalScore=Math.round((todayComplete/DAILY_GOALS.length)*100);
+  const isWin=totalScore===100;
+
+  useEffect(()=>{
+    if(isWin&&streak.lastWin!==todayStr){
+      const yesterday=new Date(todayStr);yesterday.setDate(yesterday.getDate()-1);
+      const yStr=yesterday.toISOString().split("T")[0];
+      setStreak({days:streak.lastWin===yStr?streak.days+1:1,lastWin:todayStr});
+    }
+  },[isWin]);
+
+  const analytics={
+    replyRate:leads.length?Math.round(leads.filter(l=>["Replied","Call Booked","Catalog Sent","Negotiating","Won"].includes(l.stage)).length/leads.length*100):0,
+    closeRate:leads.length?Math.round(won.length/leads.length*100):0,
+    topChannel:(()=>{const c={};leads.forEach(l=>c[l.channel]=(c[l.channel]||0)+1);return Object.entries(c).sort((a,b)=>b[1]-a[1])[0]?.[0]||"—";})(),
+    topType:(()=>{const c={};leads.filter(l=>["Replied","Won"].includes(l.stage)).forEach(l=>c[l.type]=(c[l.type]||0)+1);return Object.entries(c).sort((a,b)=>b[1]-a[1])[0]?.[0]||"—";})(),
+    avgScore:leads.length?Math.round(leads.reduce((a,l)=>a+(l.score||0),0)/leads.length):0,
+  };
+
+  const filtered=leads.filter(l=>(filterTier==="All"||l.tier===filterTier)&&(filterStage==="All"||l.stage===filterStage));
+
+  const s={
+    w:{fontFamily:"'Helvetica Neue',sans-serif",color:D,background:BG,minHeight:"100vh"},
+    hdr:{background:W,borderBottom:"1px solid #e8e2d0",padding:"10px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:6,position:"sticky",top:0,zIndex:50},
+    nav:{display:"flex",gap:2,flexWrap:"wrap"},
+    tab:a=>({padding:"5px 11px",fontSize:10,letterSpacing:.8,textTransform:"uppercase",border:`1px solid ${a?G:"#e0d8c8"}`,background:a?G:"transparent",color:a?W:"#999",cursor:"pointer",borderRadius:4,fontFamily:"inherit",whiteSpace:"nowrap"}),
+    btn:{padding:"7px 15px",fontSize:10,letterSpacing:.8,textTransform:"uppercase",border:`1px solid ${G}`,background:G,color:W,cursor:"pointer",borderRadius:5,fontFamily:"inherit"},
+    btnG:{padding:"7px 15px",fontSize:10,letterSpacing:.8,textTransform:"uppercase",border:`1px solid ${G}`,background:"transparent",color:G,cursor:"pointer",borderRadius:5,fontFamily:"inherit"},
+    bsm:(c=G,f=false)=>({padding:"4px 10px",fontSize:10,letterSpacing:.5,textTransform:"uppercase",border:`1px solid ${c}`,background:f?c:"transparent",color:f?W:c,cursor:"pointer",borderRadius:4,fontFamily:"inherit"}),
+    card:{background:W,border:"1px solid #e8e2d0",borderRadius:7,padding:"14px",marginBottom:8},
+    badge:st=>({display:"inline-block",padding:"2px 7px",borderRadius:20,fontSize:9,fontWeight:600,background:SC[st]?.[0]||"#eee",color:SC[st]?.[1]||"#666",letterSpacing:.3}),
+    tier:t=>({display:"inline-block",padding:"2px 7px",borderRadius:3,fontSize:9,fontWeight:700,background:t==="A"?"#fdecea":t==="B"?"#fdf3e0":"#f4f4f4",color:t==="A"?"#c0392b":t==="B"?G:"#888",letterSpacing:.8}),
+    inp:{width:"100%",padding:"7px 10px",border:"1px solid #e0d8c8",borderRadius:5,fontSize:12,fontFamily:"inherit",background:W,color:D,marginBottom:6,boxSizing:"border-box"},
+    lbl:{fontSize:9,letterSpacing:.8,textTransform:"uppercase",color:"#aaa",marginBottom:2,display:"block"},
+    modal:{position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,.55)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:200,padding:12},
+    mbox:{background:W,borderRadius:10,padding:20,width:"100%",maxWidth:540,maxHeight:"90vh",overflowY:"auto"},
+    pre:{background:"#fafaf8",border:"1px solid #e8e2d0",borderRadius:6,padding:12,fontSize:12,lineHeight:1.85,whiteSpace:"pre-wrap",fontFamily:"inherit"},
+    r2:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7},
+    sec:{fontSize:10,fontWeight:600,letterSpacing:1,textTransform:"uppercase",color:"#bbb",marginBottom:8},
+    div:{height:1,background:"#e8e2d0",margin:"12px 0"},
+    gl:{borderLeft:`2px solid ${G}`},
+    rd:{borderLeft:`2px solid #c0392b`},
+    statBox:{background:W,border:"1px solid #e8e2d0",borderRadius:7,padding:"12px 10px",textAlign:"center",flex:1,minWidth:60},
+  };
+
+  const VIEWS=[{k:"command",l:"Command"},{k:"pipeline",l:"Leads"},{k:"gen",l:"Lead Gen"},{k:"msg",l:"Messages"},{k:"import",l:"Import"},{k:"gmail",l:"Gmail"},{k:"shows",l:"Shows"},{k:"rep",l:"Rep Tracker"},{k:"analytics",l:"Analytics"}];
+
+  const genBriefing=async()=>{
+    const pipe=STAGES.map(s=>({s,n:leads.filter(l=>l.stage===s).length})).filter(x=>x.n>0).map(x=>`${x.s}:${x.n}`).join(", ");
+    const due=dueToday.map(l=>`${l.name}(${l.tier},${l.stage})`).join(", ");
+    const aTop=tierA.slice(0,4).map(l=>`${l.name}—${l.stage}—${l.notes?.slice(0,50)}`).join("\n");
+    const prog=DAILY_GOALS.map(g=>`${g.label}: ${progress.counts[g.id]||0}/${g.target}`).join(", ");
+    await runAI("Daily Command Briefing",`Today: ${todayStr}. Pipeline: ${pipe}. Due: ${due||"none"}. A-tier:\n${aTop||"none"}\nProgress: ${prog}\n\n1. PIPELINE PULSE (
