@@ -93,16 +93,45 @@ function App(){
     await runAI("briefing",`Today:${todayStr}. Pipeline:${pipe}. Due:${due||"none"}. A-tier:\n${aTop||"none"}\n\nGenerate elite daily briefing:\n1. PIPELINE PULSE (2 sentences, brutally honest)\n2. TOP 5 MOVES TODAY (numbered, name specific lead + exact action)\n3. BOTTLENECK (what's stalling and why)\n4. VOLUME TARGETS (exact numbers)\n5. POWER MOVE (one non-obvious action)\n6. CLOSER (one line, make it hit)`);
   }
 
- async function genLeads(){
+async function genLeads(){
   const existing=leads.slice(0,15).map(l=>l.name).join(", ");
-  const r=await runAI("leads_raw",`Generate 15 wholesale jewelry leads for a 14K gold mounting supplier in LA.\nReturn ONLY a JSON array. No markdown, no explanation, no backticks.\nEach object must have: name, contact, email, type, city, channel, tier, notes, title, score\n\nRules:\n- contact: @handle if Instagram, email if Cold Email\n- channel: exactly "Cold Email" or "Instagram" or "LinkedIn"\n- tier: exactly "A" or "B" or "C"\n- score: number 0-100\n- type: Setter/Studio or Retail Jeweler or Lab Diamond Dealer or Jewelry Manufacturer\n- Avoid these names: ${existing}\n\nStart your response with [ and end with ]`);
+  const searchPrompt=`Search the web for real, verifiable wholesale jewelry businesses in major US cities that would buy 14K gold mountings (tennis bracelets, necklaces, rings). 
+
+Search for: bench jewelers, stone setters, custom jewelry studios, lab diamond dealers, jewelry manufacturers.
+
+For each business found, extract ALL available public information.
+
+Return ONLY a raw JSON array of 15 real businesses found online:
+[{name, contact, email, phone, instagram, linkedin, website, type, city, channel, tier, notes, title, score}]
+
+Rules:
+- Only include businesses you actually found via search — no made up names
+- name: real business name as found online
+- contact: Instagram @handle if found, otherwise email
+- email: any public email found
+- phone: phone number if found
+- instagram: Instagram handle if found  
+- linkedin: LinkedIn URL if found
+- website: business website if found
+- channel: "Cold Email" or "Instagram" or "LinkedIn"
+- tier: "A" if setter/studio/lab dealer, "B" if retailer, "C" if unclear
+- score: 0-100 fit score
+- notes: what they do + why they're a fit
+- Avoid these already in pipeline: ${existing}
+
+No markdown. No backticks. Raw JSON array only. Start with [ end with ]`;
+
+  setL("leads_raw",true);setO("leads",[]);
   try{
-    const match=r.match(/\[[\s\S]*\]/);
+    const r=await fetch("/api/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt:searchPrompt,system:SYS,apiKey,useSearch:true})});
+    const d=await r.json();
+    const text=d.extractedText||d.content?.[0]?.text||"";
+    const match=text.match(/\[[\s\S]*\]/);
     if(match){setO("leads",JSON.parse(match[0]));}
     else{setO("leads",[]);}
   }catch(e){setO("leads",[]);}
-   
-  }
+  setL("leads_raw",false);
+}
 
   async function research(lead){
     await runAI("research",`Score and brief:\nBusiness:${lead.name} | Type:${lead.type} | City:${lead.city} | Tier:${lead.tier}\nNotes:${lead.notes||"none"}\n\n1. SCORE (0-100) + reasoning\n2. TIER VERDICT + why\n3. PAIN POINTS with current supplier\n4. PERSONALIZATION HOOKS — 3 specific angles\n5. OBJECTIONS + exact rebuttals\n6. SEQUENCE RECOMMENDATION\n7. DEAL SIZE ESTIMATE`);
